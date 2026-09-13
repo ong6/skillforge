@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skillforge agent workflow"
+  short_description: "Build skills and evaluate exact frozen workflows"
+  default_prompt: "Use $skillforge-workflow to compare a skill against a no-skill baseline."

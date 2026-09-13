@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, open, rename, unlink } from 'node:fs/promises';
+import { mkdir, readFile, open, rename, unlink, lstat } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { catalog, CAPABILITIES } from './catalog.mjs';
 import { validateResources, materializeResources, packHash, packManifest, makePackFiles, importFolder, safePath, LIMITS } from './packs.mjs';
@@ -191,7 +192,9 @@ export function resultTemplate(bundle) {
 }
 export function validateResults(input, bundle, previous = []) {
   object(input, 'results');
-  keys(input, ['version', 'bundleId', 'bundleHash', 'modelId', 'conditionsHash', 'kind', 'runs'], 'results');
+  keys(input, ['version', 'bundleId', 'bundleHash', 'modelId', 'conditionsHash', 'kind', 'runs', 'executionProvenance'], 'results');
+  let executionProvenance;
+  if (input.executionProvenance !== undefined) { const p = object(input.executionProvenance, 'executionProvenance'); keys(p, ['executor', 'judge', 'environment'], 'executionProvenance'); text(p.executor, 'executor', 200); text(p.environment, 'environment', 2000); if (!['human-entered', 'agent', 'synthetic'].includes(p.judge)) fail('Unknown judge provenance.'); if (p.judge === 'synthetic' && input.kind !== 'demo') fail('Synthetic executions must be demo data.'); executionProvenance = structuredClone(p); }
   if (input.version !== 1) fail('Results version must be 1.');
   if (input.bundleId !== bundle.id || input.bundleHash !== bundle.hash) fail('Bundle identity or hash mismatch. Results cannot be attached to a different benchmark.');
   if (input.modelId !== bundle.model.id) fail('Model mismatch. Rankings require the exact same declared model ID.');
@@ -218,7 +221,7 @@ export function validateResults(input, bundle, previous = []) {
     }));
     return { candidateId: candidate.id, candidateHash: candidate.hash, caseId: r.caseId, repetition, output, ...(error ? { error } : {}), judgments, latencyMs: measurement(r.latencyMs, 'latencyMs', 86400000), inputTokens: measurement(r.inputTokens, 'inputTokens', 100000000, true), outputTokens: measurement(r.outputTokens, 'outputTokens', 100000000, true), costUsd: measurement(r.costUsd, 'costUsd', 1000000) };
   });
-  return { id: randomUUID(), importedAt: new Date().toISOString(), version: 1, bundleId: bundle.id, bundleHash: bundle.hash, modelId: bundle.model.id, conditionsHash: bundle.conditionsHash, kind: input.kind, runs };
+  return { id: randomUUID(), importedAt: new Date().toISOString(), version: 1, bundleId: bundle.id, bundleHash: bundle.hash, modelId: bundle.model.id, conditionsHash: bundle.conditionsHash, kind: input.kind, runs, ...(executionProvenance ? { executionProvenance } : {}) };
 }
 const runKey = r => JSON.stringify([r.candidateId, r.caseId, r.repetition]);
 export function scoreRun(run, rubric) { const weights = rubric.reduce((n, r) => n + r.weight, 0); return 100 * rubric.reduce((n, r) => n + r.weight * run.judgments[r.id].score / r.maxScore, 0) / weights; }
@@ -470,11 +473,19 @@ export class Store {
   async load() {
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     try {
-      const source = await readFile(this.path, 'utf8'); if (Buffer.byteLength(source) > MAX_STATE) fail('Local state exceeds 50 MiB.');
+      const handle = await open(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      let source;
+      try { const stat = await handle.stat(); if (!stat.isFile() || stat.size > MAX_STATE) fail('Local state must be a regular file of at most 50 MiB.'); source = await handle.readFile('utf8'); } finally { await handle.close(); }
+      if (Buffer.byteLength(source) > MAX_STATE) fail('Local state exceeds 50 MiB.');
       const data = validateState(JSON.parse(source));
       if (data.version === 1) { const next = migrateState(data, hash(source)); validateState(next); await this.preserve(source, 'v1'); await this.persist(next); }
       else this.state = data;
-    } catch (e) { if (e.code !== 'ENOENT') throw new Error(`Cannot load local state; preserve the file and repair it before restarting. ${e.message}`); }
+      this.loadedFile = true;
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw new Error(`Cannot load local state; preserve the file and repair it before restarting. ${e.message}`);
+      const marked = await lstat(join(dirname(this.path), '.agent-workspace.json')).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error; });
+      if (marked || this.loadedFile) throw new Error('Initialized workspace state is missing. Preserve the directory and recover the state; it will not be reset.');
+    }
     return this;
   }
   async mutate(fn) {

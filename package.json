@@ -1,7 +1,10 @@
 {
   "name": "skillforge-local",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
+  "bin": { "skillforge": "agent/cli.mjs" },
+  "files": ["agent", "core.mjs", "packs.mjs", "catalog.mjs", "public", "skills", "server.mjs", "service.mjs"],
+  "dependencies": { "@modelcontextprotocol/sdk": "1.30.0", "zod": "4.6.4" },
   "description": "Local skill discovery, composition and evidence workbench",
   "type": "module",
   "engines": { "node": ">=22" },

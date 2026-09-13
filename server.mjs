@@ -2,7 +2,9 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { withLock } from './agent/workspace.mjs';
+import { SkillforgeService } from './service.mjs';
 import { allSkills, matchSkills, importSkills, exportCatalog, composeSkill, createBundle, validateResults, summarizeResults, resultTemplate, skillPack, Store, InputError, MAX_BODY, MAX_RESTORE, parseJSON, CAPABILITIES, saveMutable, reviseSkill, frozenPrompt, decisionReport, workspaceBackup, readBackup, workspaceSummary, hash } from './core.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -19,8 +21,9 @@ async function body(req, limit = MAX_BODY) {
   for await (const chunk of req) { size += chunk.length; if (size > limit) throw new InputError(`Request exceeds the ${limit / 1024 / 1024} MiB limit.`, 413); chunks.push(chunk); }
   return parseJSON(Buffer.concat(chunks).toString('utf8'));
 }
-export async function createApp({ dataPath = join(ROOT, 'data', 'state.json') } = {}) {
-  const store = await new Store(dataPath).load();
+export async function createApp({ dataPath = join(ROOT, 'data', 'state.json'), workspace } = {}) {
+  if (workspace) dataPath = join(workspace, 'state.json');
+  const store = await withLock(dirname(dataPath), () => new Store(dataPath).load(), { create: true });
   const restorePreviews = new Map();
   const server = http.createServer(async (req, res) => {
     for (const [key, value] of Object.entries(securityHeaders)) res.setHeader(key, value);
@@ -34,6 +37,9 @@ export async function createApp({ dataPath = join(ROOT, 'data', 'state.json') } 
       if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])) throw new InputError('Cross-site requests are not allowed.', 403);
       if (req.method === 'POST' && req.headers.origin !== `http://${host}`) throw new InputError('Mutating requests require the exact local Origin header.', 403);
       if (req.url.length > 2000 || !req.url.startsWith('/') || req.url.startsWith('//')) throw new InputError('Invalid request target.');
+      await withLock(dirname(dataPath), async () => {
+      await store.load();
+      const service = new SkillforgeService(dirname(dataPath)); service.store = store;
       const url = new URL(req.url, `http://${host}`);
       if (!['GET', 'POST'].includes(req.method)) throw new InputError('Method not allowed.', 405);
       if (req.method === 'GET' && Object.hasOwn(publicFiles, url.pathname)) {
@@ -62,9 +68,9 @@ export async function createApp({ dataPath = join(ROOT, 'data', 'state.json') } 
         const input = await body(req, ['/api/restore', '/api/restore-preview'].includes(url.pathname) ? MAX_RESTORE : MAX_BODY);
         if (!input || typeof input !== 'object' || Array.isArray(input)) throw new InputError('Request body must be a JSON object.');
         if (url.pathname === '/api/search') return json({ skills: matchSkills(allSkills(store.state), input?.query, input?.model) });
-        if (['/api/profiles', '/api/drafts', '/api/shortlists'].includes(url.pathname)) { const collection = url.pathname.slice(5); const item = await store.mutate(state => saveMutable(state, collection, input)); return json({ [collection === 'profiles' ? 'profile' : collection === 'drafts' ? 'draft' : 'shortlist']: item }, 201); }
-        if (url.pathname === '/api/revisions') { const skill = await store.mutate(state => { if (state.skills.length >= 500) throw new InputError('Local catalog limit reached.'); const item = reviseSkill(input, allSkills(state).find(s => s.id === input.sourceId)); state.skills.push(item); return item; }); return json({ skill }, 201); }
-        if (url.pathname === '/api/decision') { const b = store.state.bundles.find(b => b.id === input.bundleId); if (!b) throw new InputError('Unknown bundle ID.'); const profile = input.profileId ? store.state.profiles.find(p => p.id === input.profileId) : null; if (input.profileId && !profile) throw new InputError('Unknown saved profile.'); const report = decisionReport(b, store.state.results, input.requirements ?? profile?.requirements); if (profile) { report.profile = structuredClone(profile); if (profile.model && hash(profile.model) !== hash(b.model)) { report.status = 'insufficient-evidence'; report.choice = null; report.qualifications.push('Selected profile model declaration does not match this frozen bundle; no choice is justified for that profile.'); } } return json({ report }); }
+        if (['/api/profiles', '/api/drafts', '/api/shortlists'].includes(url.pathname)) { const collection = url.pathname.slice(5); const { item } = await service.save(collection, input); return json({ [collection === 'profiles' ? 'profile' : collection === 'drafts' ? 'draft' : 'shortlist']: item }, 201); }
+        if (url.pathname === '/api/revisions') return json(await service.revise(input), 201);
+        if (url.pathname === '/api/decision') return json(service.report(input.bundleId, input.requirements, input.profileId));
         if (url.pathname === '/api/restore-preview') {
           const state = readBackup(input.backup); const token = randomUUID();
           for (const [key, item] of restorePreviews) if (Date.now() - item.created > 600000) restorePreviews.delete(key);
@@ -77,20 +83,20 @@ export async function createApp({ dataPath = join(ROOT, 'data', 'state.json') } 
           if (input.confirm !== true || !preview || Date.now() - preview.created > 600000 || preview.hash !== hash(input.backup) || preview.revision !== input.revision) throw new InputError('Restore requires a matching, fresh preview and explicit replacement confirmation.', 409);
           const restored = await store.restore(input.backup, input.revision); restorePreviews.clear(); return json({ restored });
         }
-        if (url.pathname === '/api/import') { const imported = await store.mutate(state => { const items = importSkills(input, state.skills); state.skills.push(...items); return items; }); return json({ imported, count: imported.length }, 201); }
-        if (url.pathname === '/api/compose') { const skill = await store.mutate(state => { if (state.skills.length >= 500) throw new InputError('Local catalog limit reached.'); const source = input.sourceId ? allSkills(state).find(s => s.id === input.sourceId) : null; if (input.sourceId && !source) throw new InputError('Adaptation source was not found.'); const item = composeSkill(input, source); state.skills.push(item); return item; }); return json({ skill }, 201); }
-        if (url.pathname === '/api/bundles') { const bundle = await store.mutate(state => { if (state.bundles.length >= 100) throw new InputError('Evaluation bundle limit reached (100).'); const b = createBundle(input, allSkills(state)); const reused = state.bundles.filter(old => old.cases.some(c => b.cases.some(n => n.input === c.input))); if (b.caseSet === 'held-out' && reused.length) throw new InputError('Cases already used in a frozen bundle are development cases, not fresh held-out evidence.'); if (b.reusedFrom && !state.bundles.some(old => old.id === b.reusedFrom)) throw new InputError('Unknown reusedFrom bundle.'); if (reused.length) { b.reusedCaseBundles = reused.map(old => old.id); b.caseReuseNotice = 'Cases reused from earlier bundles. Development evidence only; not independent held-out validation.'; const { hash: fingerprint, ...payload } = b; b.hash = hash(payload); } state.bundles.push(b); return b; }); return json({ bundle }, 201); }
-        if (url.pathname === '/api/results') { const result = await store.mutate(state => { const bundle = state.bundles.find(b => b.id === input?.bundleId); if (!bundle) throw new InputError('Unknown bundle ID. Create a local bundle first.'); const r = validateResults(input, bundle, state.results); state.results.push(r); return r; }); return json({ result }, 201); }
+        if (url.pathname === '/api/import') return json(await service.import(input), 201);
+        if (url.pathname === '/api/compose') return json(await service.compose(input), 201);
+        if (url.pathname === '/api/bundles') return json(await service.createEvaluation(input), 201);
+        if (url.pathname === '/api/results') return json(await service.results(input), 201);
       }
       throw new InputError('Route not found.', 404);
-    } catch (error) { const clientError = error instanceof InputError || [400, 409, 413, 415].includes(error.status); if (!res.headersSent) json({ error: clientError ? error.message : 'Internal error. No change was committed; inspect the local server console.' }, error.status || 500); else res.end(); if (!clientError) console.error(error); }
+    }); } catch (error) { const clientError = error instanceof InputError || [400, 409, 413, 415].includes(error.status); if (!res.headersSent) json({ error: clientError ? error.message : 'Internal error. No change was committed; inspect the local server console.' }, error.status || 500); else res.end(); if (!clientError) console.error(error); }
   });
   server.requestTimeout = 15000; server.headersTimeout = 10000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 40;
   return { server, store };
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === await realpath(process.argv[1]).catch(() => '')) {
   if (process.argv.includes('--help')) {
-    console.log('Skillforge — local skill discovery and evaluation workbench\n\nUsage: npm start [-- --port 4312]\n       npm test\n       node server.mjs --help\n\nBinds only to 127.0.0.1 (default port 4312). Open that exact address, not localhost.\nNo API keys, external fetches, or runtime dependencies. Data: ./data/state.json relative to the app.\nImport local SKILL.md/catalog JSON in Library. Compose portable ZIP packs.\nCompare candidates, export frozen evaluation bundles, run them yourself, and import observed results.\nSee in-app Field guide for schemas, limits, and evaluation caveats.');
+    console.log('Skillforge — local skill discovery and evaluation workbench\n\nUsage: npm start [-- --port 4312]\n       npm test\n       node server.mjs --help\n\nBinds only to 127.0.0.1 (default port 4312). Open that exact address, not localhost.\nNo API keys, external fetches, . Data: ./data/state.json relative to the app.\nImport local SKILL.md/catalog JSON in Library. Compose portable ZIP packs.\nCompare candidates, export frozen evaluation bundles, run them yourself, and import observed results.\nSee in-app Field guide for schemas, limits, and evaluation caveats.');
   } else {
     const args = process.argv.slice(2); let port = 4312;
     if (args.length) { if (args.length !== 2 || args[0] !== '--port' || !/^\d+$/.test(args[1]) || Number(args[1]) < 1024 || Number(args[1]) > 65535) { console.error('Usage: node server.mjs [--port 1024..65535] [--help]'); process.exitCode = 1; } else port = Number(args[1]); }
