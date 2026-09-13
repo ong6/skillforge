@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#332a83">
+  <meta name="description" content="A local workbench for finding, crafting, and evaluating model skills.">
+  <title>Skillforge — Find your edge</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <aside class="sidebar">
+    <a class="brand" href="#discover" aria-label="Skillforge home"><span class="brand-mark" aria-hidden="true">s<span>f</span></span><span>skillforge<span class="brand-sub">THE LOCAL SKILL WORKBENCH</span></span></a>
+    <div class="workspace-label"><span class="status-dot"></span> PERSONAL WORKSPACE <span class="workspace-tag">01</span></div>
+    <nav aria-label="Main navigation">
+      <a href="#discover" data-nav="discover"><span class="nav-symbol" aria-hidden="true">⌕</span>Discover<span class="nav-end">01</span></a>
+      <a href="#compose" data-nav="compose"><span class="nav-symbol" aria-hidden="true">＋</span>Compose<span class="nav-end">02</span></a>
+      <a href="#compare" data-nav="compare"><span class="nav-symbol" aria-hidden="true">▥</span>Compare<span id="compare-count" class="count-badge">0</span></a>
+      <a href="#evidence" data-nav="evidence"><span class="nav-symbol" aria-hidden="true">◴</span>Evidence<span class="nav-end">04</span></a>
+      <a href="#library" data-nav="library"><span class="nav-symbol" aria-hidden="true">▤</span>My library<span class="nav-end">05</span></a>
+      <a href="#profiles" data-nav="profiles"><span class="nav-symbol" aria-hidden="true">◇</span>Task profiles<span class="nav-end">06</span></a>
+      <a href="#workspace" data-nav="workspace"><span class="nav-symbol" aria-hidden="true">⇄</span>Workspace<span class="nav-end">07</span></a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="local-card"><span class="local-glyph" aria-hidden="true">↳</span><strong>Your work stays here.</strong><p>No accounts. No API keys.<br>No background model calls.</p><span class="local-pill"><span class="status-dot"></span> LOCAL-FIRST BY DESIGN</span></div>
+      <a class="guide-link" href="#help"><span aria-hidden="true">?</span>Field guide <span aria-hidden="true">↗</span></a>
+      <div class="sidebar-foot">BUILT FOR DELIBERATE WORK <span>v1.0</span></div>
+    </div>
+  </aside>
+  <div class="main-shell">
+    <header class="topbar"><div class="breadcrumb">WORKSPACE <span>/</span> <strong id="page-name">DISCOVER</strong></div><div class="connection"><span class="status-dot"></span> Local session <span class="divider"></span><span class="avatar">YO</span></div></header>
+    <main id="main" tabindex="-1"><div class="initial-load">Opening your local workbench…</div></main>
+    <footer class="page-footer"><span>Skillforge / A better fit starts with a better question.</span><span>LOCAL CATALOG · NO UNIVERSAL BEST</span></footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="skill-dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
+  <noscript>This local application requires JavaScript. No JavaScript is loaded from the internet.</noscript>
+</body>
+</html>
