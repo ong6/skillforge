@@ -1,10 +1,10 @@
 # skillforge
 
-Local workbench for discovering, composing, versioning and evaluating agent skills, with a no-skill baseline frozen into every comparison.
+Local workbench for discovering, composing, versioning and evaluating agent skills. Every comparison carries a frozen no-skill baseline.
 
-Most skill repos tell you a skill works. None of them show the run where the same model on the same case without the skill did just as well. skillforge is the tool I wanted for that question. It keeps a local catalog of skill packs (18 bundled, plus anything you import from a `SKILL.md`, a folder or a catalog), composes new ones deterministically from a task description, and gives every revision an immutable identity so results never quietly transfer between versions. An evaluation freezes the model, conditions, candidates, rubric and cases before you see a single output, and always includes the no-skill baseline. You run the frozen prompts in your own host, submit the real outputs and judgments, and the report gives baseline deltas with completeness and requirement checks, or refuses to pick a winner while evidence is missing.
+Most skill repos tell you a skill works. None show the run where the same model on the same case without the skill did as well. skillforge is the tool I wanted for that question. It keeps a local catalog of skill packs (18 bundled, plus anything you import from a `SKILL.md`, a folder or a catalog). It composes new packs deterministically from a task description. Every revision gets an immutable identity, so results never transfer between versions unnoticed. An evaluation freezes the model, conditions, candidates, rubric and cases before you see one output, and always includes the no-skill baseline. You run the frozen prompts in your own host and submit the real outputs and judgments. The report gives baseline deltas with completeness and requirement checks, or refuses to pick a winner while evidence is missing.
 
-It never calls a model itself. Search scores are heuristics and the report says so. Synthetic fixtures have to be marked `demo` and stay separate from observed evidence.
+It never calls a model itself. Search scores are heuristics and the report says so. Synthetic fixtures must be marked `demo` and stay separate from observed evidence.
 
 ## Quick start
 
@@ -33,7 +33,7 @@ The evaluation loop is `evaluation.create`, then `evaluation.prompt` per candida
 
 ## In the suite
 
-skillforge is one of three tools in [fieldpack](https://github.com/ong6/fieldpack), beside [deckforge](https://github.com/ong6/deckforge) and [proofpack](https://github.com/ong6/proofpack). The bundled catalog here is the kind of thing [skillpack](https://github.com/ong6/skillpack) publishes.
+skillforge is one of three tools in [fieldpack](https://github.com/ong6/fieldpack), beside [deckforge](https://github.com/ong6/deckforge) and [proofpack](https://github.com/ong6/proofpack). The bundled catalog here is what [skillpack](https://github.com/ong6/skillpack) publishes.
 
 ## More from ong6
 
@@ -45,3 +45,4 @@ Forges make things, packs bundle them.
 - [proofpack](https://github.com/ong6/proofpack) — pilot evidence, review proposals and customer-safe handovers
 - [fieldpack](https://github.com/ong6/fieldpack) — deckforge, skillforge and proofpack as one local-first suite
 - [skillpack](https://github.com/ong6/skillpack) — the Claude Code and Codex skills used across all of these
+- [uipack](https://github.com/ong6/uipack) — React and SVG figure components behind the diagrams on junxiong.dev
